@@ -147,7 +147,9 @@ if(!standalone && /iphone|ipad|ipod/i.test(navigator.userAgent)) $('#ioshint').c
 // ---------- login ----------
 $('#go').onclick = login;
 $('#pin').onkeydown = e => { if(e.key==='Enter') login(); };
-try{ const p = localStorage.getItem('mk_pin'); if(p){ $('#pin').value=p; } }catch(e){}
+// The PIN is asked once per phone; after that the app opens straight in.
+let savedPin = ''; try{ savedPin = localStorage.getItem('mk_pin') || ''; }catch(e){}
+if(savedPin){ $('#pin').value = savedPin; login(); }
 
 async function login(){
   const pin = $('#pin').value.trim(); if(!pin) return;
@@ -158,9 +160,14 @@ async function login(){
     try{ localStorage.setItem('mk_pin',pin) }catch(e){}
     if(S.role==='admin'){ S.tab='report'; S.adminBranch=''; }
     shell();
-  }catch(e){ $('#lerr').textContent = e.message; $('#login').classList.remove('load'); }
+  }catch(e){
+    // a PIN the sheet no longer has is forgotten; a network error keeps it for the next try
+    if(e.message === 'الرمز غير صحيح'){ try{localStorage.removeItem('mk_pin')}catch(_){} $('#pin').value=''; }
+    $('#lerr').textContent = e.message === 'Failed to fetch' ? 'تعذر الاتصال، تأكد من الإنترنت واضغط دخول' : e.message;
+    $('#login').classList.remove('load');
+  }
 }
-function logout(){ try{localStorage.removeItem('mk_pin')}catch(e){} location.reload(); }
+function logout(){ if(!confirm('تبي تطلع؟ بتحتاج الرمز مرة ثانية للدخول')) return; try{localStorage.removeItem('mk_pin')}catch(e){} location.reload(); }
 
 function shell(){
   $('#app').innerHTML = `
