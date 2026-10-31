@@ -65,6 +65,8 @@ label.f{display:block;font-size:12px;color:var(--mute);margin-bottom:4px}
 .bar{position:sticky;bottom:0;background:var(--navy);color:#fff;padding:12px 16px;display:flex;gap:12px;align-items:center;border-radius:14px 14px 0 0;margin:0 -16px -16px;z-index:10}
 .bar .s{flex:1;font-size:13px;line-height:1.5}
 .bar .s b{font-size:17px}
+.btn.wa{background:#1F9D55;text-decoration:none;display:inline-flex;align-items:center}
+.btn.off{opacity:.5}
 .kpis{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
 @media(min-width:720px){.kpis{grid-template-columns:repeat(4,1fr)}}
 .kpi{background:#fff;border-radius:12px;padding:12px;box-shadow:0 1px 3px rgba(41,38,99,.08)}
@@ -200,13 +202,14 @@ async function entry(){
     <p class="muted" id="estate" style="margin:10px 0 0">...</p>
   </div>
   <div class="card"><div class="items" id="elist"></div>
-    <div class="bar"><div class="s" id="esum"></div><button class="btn" id="esave">حفظ</button></div>
+    <div class="bar"><div class="s" id="esum"></div><a class="btn wa" id="ewa" href="#" target="_blank" rel="noopener">واتساب</a><button class="btn" id="esave">حفظ</button></div>
   </div>`;
   if(S.role==='admin'){ if(!S.eb) S.eb=S.meta.branches[0]; $('#ebr').value=S.eb; $('#ebr').onchange=e=>{S.eb=e.target.value;loadDay()}; }
   $('#edate').onchange = e => { S.date = e.target.value; loadDay(); };
   $('#esearch').oninput = e => { S.filter = e.target.value; list(); };
   $('#ebrand').onchange = e => { S.brand = e.target.value; list(); };
   $('#esave').onclick = save;
+  $('#ewa').onclick = e => { if(!Object.keys(S.qty).length){ e.preventDefault(); toast('ما فيه مبيعات ترسلينها'); } };
   await loadDay();
 }
 async function loadDay(){
@@ -245,6 +248,11 @@ function sum(){
   let p=0,v=0,n=0; const by={}; S.meta.items.forEach(x=>by[x.b]=x);
   for(const b in S.qty){ const x=by[b]; if(!x) continue; n++; p+=S.qty[b]; v+=S.qty[b]*x.p; }
   $('#esum').innerHTML = `<b class="num">${f0(p)}</b> حبة · <span class="num">${n}</span> صنف<br><span class="num">${f2(v)}</span> ر.س`;
+  // WhatsApp report: items and quantities only
+  const lines = S.meta.items.filter(x => S.qty[x.b]).map((x, i) => `${i+1}) ${x.n} — ${S.qty[x.b]}`);
+  const txt = [`*مبيعات مخازن العناية — فرع ${S.role==='admin'?S.eb:S.branch}*`, `التاريخ: ${S.date}`, '', ...lines, '', `الإجمالي: ${n} صنف / ${p} حبة`].join('\n');
+  $('#ewa').href = 'https://wa.me/?text=' + encodeURIComponent(txt);
+  $('#ewa').classList.toggle('off', !n);
 }
 async function save(){
   const btn = $('#esave'); btn.disabled = true; btn.textContent='جاري الحفظ...';
