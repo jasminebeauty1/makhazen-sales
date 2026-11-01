@@ -169,7 +169,7 @@ async function login(){
     $('#login').classList.remove('load');
   }
 }
-function logout(){ if(!confirm('تبي تطلع؟ بتحتاج الرمز مرة ثانية للدخول')) return; try{localStorage.removeItem('mk_pin')}catch(e){} location.reload(); }
+async function logout(){ if(!confirm('تبي تطلع؟ بتحتاج الرمز مرة ثانية للدخول')) return; await flushSave(); try{localStorage.removeItem('mk_pin')}catch(e){} location.reload(); }
 
 function shell(){
   $('#app').innerHTML = `
@@ -204,11 +204,11 @@ async function entry(){
   <div class="card"><div class="items" id="elist"></div>
     <div class="bar"><div class="s" id="esum"></div><a class="btn wa" id="ewa" href="#" target="_blank" rel="noopener">واتساب</a><button class="btn" id="esave">حفظ</button></div>
   </div>`;
-  if(S.role==='admin'){ if(!S.eb) S.eb=S.meta.branches[0]; $('#ebr').value=S.eb; $('#ebr').onchange=e=>{S.eb=e.target.value;loadDay()}; }
-  $('#edate').onchange = e => { S.date = e.target.value; loadDay(); };
+  if(S.role==='admin'){ if(!S.eb) S.eb=S.meta.branches[0]; $('#ebr').value=S.eb; $('#ebr').onchange=async e=>{await flushSave(); S.eb=e.target.value;loadDay()}; }
+  $('#edate').onchange = async e => { await flushSave(); S.date = e.target.value; loadDay(); };
   $('#esearch').oninput = e => { S.filter = e.target.value; list(); };
   $('#ebrand').onchange = e => { S.brand = e.target.value; list(); };
-  $('#esave').onclick = save;
+  $('#esave').onclick = () => flushSave(true);
   $('#ewa').onclick = e => { if(!Object.keys(S.qty).length){ e.preventDefault(); toast('ما فيه مبيعات ترسلينها'); } };
   await loadDay();
 }
@@ -217,8 +217,11 @@ async function loadDay(){
   try{
     const d = await api('getDay',{pin:S.pin, date:S.date, branch:S.eb});
     S.qty = d.qty;
-    const n = Object.keys(d.qty).length;
-    $('#estate').textContent = n ? `محفوظ لهذا اليوم ${n} صنف — تقدر تعدّل وتحفظ من جديد` : 'ما فيه مبيعات محفوظة لهذا اليوم — اكتب الكمية المباعة لكل صنف واضغط حفظ';
+    // a change that never reached the sheet (no internet, app closed) is still on the phone: send it now
+    const dr = readDraft();
+    if(dr && dr.date === S.date && dr.branch === curBranch() && JSON.stringify(dr.qty) !== JSON.stringify(d.qty)){ S.qty = dr.qty; queueSave(0); }
+    else { clearDraft(); setSaveState('saved'); }
+    $('#estate').textContent = 'كل حبة تكتبينها تنحفظ تلقائيًا ✓ — وتقدرين تعدّلين أي يوم';
     list();
   }catch(e){ toast(e.message) }
   $('#view').classList.remove('load');
@@ -238,7 +241,7 @@ function list(){
   }).join('') || '<p class="muted">ما فيه أصناف بهذا البحث</p>';
   document.querySelectorAll('#elist .it').forEach(el => {
     const b = el.dataset.b, inp = el.querySelector('input');
-    const set = n => { n = Math.max(0, Math.floor(+n||0)); if(n) S.qty[b]=n; else delete S.qty[b]; inp.value = n||''; el.classList.toggle('has', !!n); sum(); };
+    const set = n => { n = Math.max(0, Math.floor(+n||0)); if(n) S.qty[b]=n; else delete S.qty[b]; inp.value = n||''; el.classList.toggle('has', !!n); sum(); queueSave(); };
     inp.oninput = () => set(inp.value.replace(/\D/g,''));
     el.querySelectorAll('button').forEach(bt => bt.onclick = () => set((S.qty[b]||0) + +bt.dataset.d));
   });
@@ -254,15 +257,52 @@ function sum(){
   $('#ewa').href = 'https://wa.me/?text=' + encodeURIComponent(txt);
   $('#ewa').classList.toggle('off', !n);
 }
-async function save(){
-  const btn = $('#esave'); btn.disabled = true; btn.textContent='جاري الحفظ...';
-  try{
-    const r = await api('saveDay',{pin:S.pin, date:S.date, branch:S.eb, qty:S.qty});
-    toast(r.saved ? `تم الحفظ ✓ ${r.pieces} حبة` : 'تم الحفظ ✓ (بدون مبيعات لهذا اليوم)');
-    $('#estate').textContent = r.saved ? `محفوظ لهذا اليوم ${r.saved} صنف — تقدر تعدّل وتحفظ من جديد` : 'ما فيه مبيعات محفوظة لهذا اليوم';
-  }catch(e){ toast(e.message) }
-  btn.disabled = false; btn.textContent='حفظ';
+// ---------- auto-save: every change goes to the sheet shortly after the last tap ----------
+// The day's quantities are kept as a draft on the phone until the sheet confirms them.
+const curBranch = () => S.role==='admin' ? S.eb : S.branch;
+const readDraft = () => { try{ return JSON.parse(localStorage.getItem('mk_draft')||'null'); }catch(e){ return null; } };
+const clearDraft = () => { try{ localStorage.removeItem('mk_draft'); }catch(e){} };
+let saveTimer = null, saving = null, dirty = null, retryTimer = null;
+function setSaveState(s){
+  const b = $('#esave'); if(!b) return;
+  b.textContent = {saved:'محفوظ ✓', pending:'جاري الحفظ...', error:'ما انحفظ — اضغطي للمحاولة'}[s];
+  b.classList.toggle('sec', s==='saved'); b.classList.toggle('off', s==='pending');
 }
+function queueSave(delay = 1200){
+  dirty = {date:S.date, branch:curBranch(), eb:S.eb, qty:{...S.qty}};
+  try{ localStorage.setItem('mk_draft', JSON.stringify(dirty)); }catch(e){}
+  setSaveState('pending');
+  clearTimeout(saveTimer); clearTimeout(retryTimer);
+  saveTimer = setTimeout(() => flushSave(), delay);
+}
+async function flushSave(manual){
+  clearTimeout(saveTimer);
+  if(saving) await saving;
+  if(!dirty){ if(manual) toast('محفوظ ✓'); return; }
+  const job = dirty; dirty = null;
+  let ok = false;
+  saving = (async () => {
+    try{
+      await api('saveDay',{pin:S.pin, date:job.date, branch:job.eb, qty:job.qty});
+      ok = true;
+      if(!dirty){ clearDraft(); setSaveState('saved'); if(manual) toast('محفوظ ✓'); }
+    }catch(e){
+      if(!dirty) dirty = job;
+      setSaveState('error');
+      if(manual) toast(e.message === 'Failed to fetch' ? 'ما فيه إنترنت — بيتحفظ تلقائيًا أول ما يرجع' : e.message);
+      clearTimeout(retryTimer); retryTimer = setTimeout(() => flushSave(), 10000);
+    }
+  })();
+  await saving; saving = null;
+  if(ok && dirty) return flushSave(manual);  // more taps came in while saving
+}
+// leaving the app: send what is pending right away (keepalive survives the page closing)
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState !== 'hidden' || !dirty) return;
+  clearTimeout(saveTimer);
+  const job = dirty;
+  try{ fetch(API_URL,{method:'POST',keepalive:true,body:JSON.stringify({fn:'saveDay',body:{pin:S.pin,date:job.date,branch:job.eb,qty:job.qty}}),headers:{'Content-Type':'text/plain;charset=utf-8'},credentials:'omit'}); }catch(e){}
+});
 
 // ---------- reports ----------
 function monthBar(extra){
