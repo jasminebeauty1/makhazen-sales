@@ -158,7 +158,11 @@ async function login(){
   $('#login').classList.add('load'); $('#lerr').textContent='';
   try{
     const [who, meta] = await Promise.all([api('login',{pin}), api('init',{})]);
-    Object.assign(S,{pin, role:who.role, branch:who.branch||'', promoter:who.promoter||'', meta, date:meta.today, month:meta.today.slice(0,7)});
+    // after midnight (before 5 am Riyadh) the shift is still yesterday's, so open on yesterday
+    const hr = +new Intl.DateTimeFormat('en-GB',{timeZone:'Asia/Riyadh',hour:'2-digit',hour12:false}).format(new Date()) % 24;
+    const yday = new Date(meta.today+'T12:00:00Z'); yday.setUTCDate(yday.getUTCDate()-1);
+    const startDate = hr < 5 ? yday.toISOString().slice(0,10) : meta.today;
+    Object.assign(S,{pin, role:who.role, branch:who.branch||'', promoter:who.promoter||'', meta, date:startDate, month:meta.today.slice(0,7), lateNight: hr < 5});
     try{ localStorage.setItem('mk_pin',pin) }catch(e){}
     if(S.role==='admin'){ S.tab='report'; S.adminBranch=''; }
     shell();
@@ -173,7 +177,7 @@ async function logout(){ if(!confirm('تبي تطلع؟ بتحتاج الرمز 
 
 function shell(){
   $('#app').innerHTML = `
-  <header><img src="${LOGO}" alt=""><div class="t"><b>مبيعات مخازن العناية</b><small>${S.role==='admin'?'المدير — كل الفروع':(S.promoter?'هلا '+esc(S.promoter)+' 🌸 — ':'')+'فرع '+esc(S.branch)}</small></div><button onclick="logout()">خروج</button></header>
+  <header><img src="${LOGO}" alt=""><div class="t"><b>مبيعات مخازن العناية</b><small>${S.role==='admin'?'المدير — كل الفروع':(S.promoter?'هلا '+esc(S.promoter)+' — ':'')+'فرع '+esc(S.branch)}</small></div><button onclick="logout()">خروج</button></header>
   <main>
     <div class="tabs">
       <button data-t="entry">${S.role==='admin'?'إدخال لفرع':'إدخال مبيعات اليوم'}</button>
@@ -221,7 +225,7 @@ async function loadDay(){
     const dr = readDraft();
     if(dr && dr.date === S.date && dr.branch === curBranch() && JSON.stringify(dr.qty) !== JSON.stringify(d.qty)){ S.qty = dr.qty; queueSave(0); }
     else { clearDraft(); setSaveState('saved'); }
-    $('#estate').textContent = 'كل حبة تكتبينها تنحفظ تلقائيًا ✓ — وتقدرين تعدّلين أي يوم';
+    $('#estate').textContent = (S.lateNight && S.date !== S.meta.today ? 'بعد نص الليل: التاريخ على مبيعات أمس (' + S.date + ')، غيّريه إذا تبين اليوم — ' : '') + 'كل حبة تكتبينها تنحفظ تلقائيًا ✓ — وتقدرين تعدّلين أي يوم';
     list();
   }catch(e){ toast(e.message) }
   $('#view').classList.remove('load');
