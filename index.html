@@ -158,7 +158,7 @@ async function login(){
   $('#login').classList.add('load'); $('#lerr').textContent='';
   try{
     const [who, meta] = await Promise.all([api('login',{pin}), api('init',{})]);
-    Object.assign(S,{pin, role:who.role, branch:who.branch||'', meta, date:meta.today, month:meta.today.slice(0,7)});
+    Object.assign(S,{pin, role:who.role, branch:who.branch||'', promoter:who.promoter||'', meta, date:meta.today, month:meta.today.slice(0,7)});
     try{ localStorage.setItem('mk_pin',pin) }catch(e){}
     if(S.role==='admin'){ S.tab='report'; S.adminBranch=''; }
     shell();
@@ -173,7 +173,7 @@ async function logout(){ if(!confirm('تبي تطلع؟ بتحتاج الرمز 
 
 function shell(){
   $('#app').innerHTML = `
-  <header><img src="${LOGO}" alt=""><div class="t"><b>مبيعات مخازن العناية</b><small>${S.role==='admin'?'المدير — كل الفروع':'فرع '+esc(S.branch)}</small></div><button onclick="logout()">خروج</button></header>
+  <header><img src="${LOGO}" alt=""><div class="t"><b>مبيعات مخازن العناية</b><small>${S.role==='admin'?'المدير — كل الفروع':(S.promoter?'هلا '+esc(S.promoter)+' 🌸 — ':'')+'فرع '+esc(S.branch)}</small></div><button onclick="logout()">خروج</button></header>
   <main>
     <div class="tabs">
       <button data-t="entry">${S.role==='admin'?'إدخال لفرع':'إدخال مبيعات اليوم'}</button>
@@ -253,7 +253,8 @@ function sum(){
   $('#esum').innerHTML = `<b class="num">${f0(p)}</b> حبة · <span class="num">${n}</span> صنف<br><span class="num">${f2(v)}</span> ر.س`;
   // WhatsApp report: items and quantities only
   const lines = S.meta.items.filter(x => S.qty[x.b]).map((x, i) => `${i+1}) ${x.n} — ${S.qty[x.b]}`);
-  const txt = [`*مبيعات مخازن العناية — فرع ${S.role==='admin'?S.eb:S.branch}*`, `التاريخ: ${S.date}`, '', ...lines, '', `الإجمالي: ${n} صنف / ${p} حبة`].join('\n');
+  const who = (S.meta.promoters||{})[curBranch()];
+  const txt = [`*مبيعات مخازن العناية — فرع ${curBranch()}*`, ...(who?[`البرموتر: ${who}`]:[]), `التاريخ: ${S.date}`, '', ...lines, '', `الإجمالي: ${n} صنف / ${p} حبة`].join('\n');
   $('#ewa').href = 'https://wa.me/?text=' + encodeURIComponent(txt);
   $('#ewa').classList.toggle('off', !n);
 }
@@ -365,7 +366,7 @@ async function adminReport(){
     </div>
     <div class="card" style="margin-top:14px"><h2>مقارنة الفروع — ${monthName(r.month)}</h2><div class="tw"><table>
       <tr><th>الفرع</th><th>الحبات</th><th class="n">من التارجت</th><th class="n">الباقي</th><th class="n">القيمة</th></tr>
-      ${B.sort((a,b)=>b[1].pieces-a[1].pieces).map(([n,o])=>`<tr class="click" data-b="${esc(n)}"><td><b>${esc(n)}</b></td>
+      ${B.sort((a,b)=>b[1].pieces-a[1].pieces).map(([n,o])=>`<tr class="click" data-b="${esc(n)}"><td><b>${esc(n)}</b>${(S.meta.promoters||{})[n]?`<br><small class="muted">${esc(S.meta.promoters[n])}</small>`:''}</td>
         <td><div class="hb"><span style="width:${o.pieces/max*90}px"></span><b class="num">${f0(o.pieces)}</b></div></td>
         <td class="n"><span class="badge ${o.pieces>=r.target?'ok':'w'} num">${pc(o.pct)}</span></td>
         <td class="n num">${f0(Math.max(0,r.target-o.pieces))}</td><td class="n num">${f2(o.value)}</td></tr>`).join('')}
